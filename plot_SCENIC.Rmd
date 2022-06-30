@@ -1,0 +1,168 @@
+---
+title: "Visualization of SCENIC"
+output: html_document
+---
+
+```{r}
+# Required packages:
+library(SCopeLoomR)
+library(AUCell)
+library(SCENIC)
+# For some of the plots:
+library(tidyverse)
+library(KernSmooth)
+library(RColorBrewer)
+library(plotly)
+library(BiocParallel)
+library(grid)
+library(ComplexHeatmap)
+library(data.table)
+```
+
+```{r}
+packageVersion("SCENIC")
+```
+
+```{r}
+res_folder = "/storage/holab/linxy/GCTB/SCENIC/cli_pySCENIC"
+scenicLoomPath <- file.path(res_folder, "GCTB6_SCENIC.loom")
+motifEnrichmentFile <- file.path(res_folder, "reg.csv")
+```
+
+## Loading data
+
+Load results from a .loom file
+
+```{r}
+loom <- open_loom(scenicLoomPath)
+    # Read information from loom file:
+    exprMat <- get_dgem(loom)
+        exprMat_log <- log2(exprMat+1) # Better if it is logged/normalized
+    regulons_incidMat <- get_regulons(loom, column.attr.name="Regulons")
+        regulons <- regulonsToGeneLists(regulons_incidMat)
+    regulonAUC <- get_regulons_AUC(loom, column.attr.name='RegulonsAUC')
+    regulonAucThresholds <- get_regulon_thresholds(loom)
+    embeddings <- get_embeddings(loom)
+#    cellClusters <- get_clusterings(loom)
+close_loom(loom)
+```
+
+Reformat `regulonAucThresholds` so that names become values and values become names
+
+```{r}
+names = regulonAucThresholds %>% as.vector()
+values = regulonAucThresholds %>% names()
+names(values) = names
+regulonAucThresholds = values
+```
+
+```{r}
+motifEnrichment <- data.table::fread(motifEnrichmentFile, skip=1)[-3,]
+colnames(motifEnrichment)[1:2] <- c("TF", "MotifID")
+head(motifEnrichment)
+```
+
+Load the cell type annotation from the seurat object
+
+```{r}
+load("/storage/holab/linxy/GCTB/GCTB6/20210126_GCTB6.combined.V2.rdata")
+cellClusters = GCTB6.combined.V2$seurat_clusters %>% as.data.frame()
+colnames(cellClusters) = "seurat_cluster"
+head(cellClusters)
+```
+
+Load the embedding from the seurat object.
+
+```{r}
+UMAP = Embeddings(GCTB6.combined.V2, reduction = "umap")
+head(UMAP)
+```
+
+
+## Scoring the network activity
+
+```{r}
+regulonAUC
+save(regulonAUC, file = str_c(res_folder, "/regulonAUC.rdata"))
+```
+
+## Select top 10 regulon for each cluster
+
+```{r}
+top5regulon = apply(regulonActivity_byCellType_Scaled, 2, function(x) names(x[order(abs(x))[1:5]]))
+top5regulonV = top5regulon %>% as.vector() %>% unique()
+top5regulonV
+```
+
+```{r}
+selectedResolution <- "seurat_cluster" # select resolution
+# Split the cells by cluster:
+cellsPerCluster <- split(rownames(cellClusters), cellClusters[,selectedResolution]) 
+regulonAUC <- regulonAUC[onlyNonDuplicatedExtended(rownames(regulonAUC)),]
+# Calculate average expression:
+regulonActivity_byCellType <- sapply(cellsPerCluster,
+                                     function(cells) rowMeans(getAUC(regulonAUC)[,cells]))
+# Scale expression:
+regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), center = T, scale=T))
+```
+
+In this step, we need to select the regulons that we are interested in
+
+```{r}
+# plot:
+options(repr.plot.width=8, repr.plot.height=10) # To set the figure size in Jupyter
+hm <- draw(ComplexHeatmap::Heatmap(regulonActivity_byCellType_Scaled, name="Regulon activity",
+                       row_names_gp=grid::gpar(fontsize=6))) # row font size
+regulonOrder <- rownames(regulonActivity_byCellType_Scaled)[row_order(hm)] # to save the clustered regulons for later
+```
+
+```{r}
+# plot:
+options(repr.plot.width=8, repr.plot.height=10) # To set the figure size in Jupyter
+hm <- draw(ComplexHeatmap::Heatmap(regulonActivity_byCellType_Scaled[top5regulonV,], name="Regulon activity",
+                       row_names_gp=grid::gpar(fontsize=6))) # row font size
+regulonOrder <- rownames(regulonActivity_byCellType_Scaled[top5regulonV,])[row_order(hm)] # to save the clustered regulons for later
+```
+
+To see the exact value
+
+```{r}
+topRegulators <- reshape2::melt(regulonActivity_byCellType_Scaled)
+colnames(topRegulators) <- c("Regulon", "CellType", "RelativeActivity")
+topRegulators$CellType <- factor(as.character(topRegulators$CellType))
+topRegulators <- topRegulators[which(topRegulators$RelativeActivity>0),]
+dim(topRegulators)
+```
+
+```{r}
+viewTable(topRegulators, options = list(pageLength = 10))
+```
+
+### Cell-type specific regulators
+
+To identify cluster-specific regulons (especially for analyses with many cell types, where some regulons are common to multiple of them) we find specially useful the Regulon Specificity Score (RSS) (proposed by Suo et al. for the Mouse Cell Atlas in 2018).
+
+```{r}
+rss <- calcRSS(AUC=getAUC(regulonAUC), cellAnnotation=cellClusters[colnames(regulonAUC), selectedResolution])
+```
+
+```{r}
+## Showing regulons and cell types with any RSS > 0.01 
+rssPlot <- plotRSS(rss)
+plotly::ggplotly(rssPlot$plot)
+```
+
+```{r}
+options(repr.plot.width=5, repr.plot.height=5) # To set the figure size in Jupyter
+plotRSS_oneSet(rss, setName = "4") # cluster ID
+```
+
+The "histogram" can't be plotted, try to plot it myself if needed.
+
+```{r}
+regulonsToPlot <- "TAL1(+)"
+options(repr.plot.width=10, repr.plot.height=4) # To set the figure size in Jupyter
+par(mfrow=c(1,3))
+#AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], thresholds = regulonAucThresholds[regulonsToPlot], plots=c("AUC", "histogram", "binary"), cex = .5)
+AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], thresholds = regulonAucThresholds[regulonsToPlot], plots=c("AUC", "binary"), cex = .5)
+```
