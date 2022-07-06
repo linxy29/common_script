@@ -1,0 +1,233 @@
+---
+title: "Visualization of SCENIC"
+output: html_document
+---
+
+```{r}
+# Required packages:
+library(SCopeLoomR)
+library(AUCell)
+library(SCENIC)
+
+# For some of the plots:
+#library(dplyr)
+library(KernSmooth)
+library(RColorBrewer)
+library(plotly)
+library(BiocParallel)
+library(grid)
+library(ComplexHeatmap)
+library(data.table)
+library(Seurat)
+```
+
+```{r}
+packageVersion("SCENIC")
+```
+
+```{r}
+# setwd("/storage/holab/linxy/iPSC/day7_SCENIC")
+vsnDir <- "/storage/holab/linxy/iPSC/day7_SCENIC/"
+```
+
+```{r}
+scenicLoomPath <- file.path(vsnDir, "day7_SCENIC.loom")
+motifEnrichmentFile <- file.path(vsnDir, "day7_reg.csv")
+seuratObjFile = "/storage/holab/linxy/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS"
+file.exists(scenicLoomPath)
+file.exists(motifEnrichmentFile)
+```
+
+```{r}
+list.files() #  What is already in the current work dir?
+```
+
+```{r}
+loom <- open_loom(scenicLoomPath)
+    # Read information from loom file:
+    exprMat <- get_dgem(loom)
+        exprMat_log <- log2(exprMat+1) # Better if it is logged/normalized
+    regulons_incidMat <- get_regulons(loom, column.attr.name="Regulons")
+        regulons <- regulonsToGeneLists(regulons_incidMat)
+    regulonAUC <- get_regulons_AUC(loom, column.attr.name='RegulonsAUC')
+    regulonAucThresholds <- get_regulon_thresholds(loom)
+    embeddings <- get_embeddings(loom)
+    #cellClusters <- get_clusterings(loom)
+close_loom(loom)
+```
+
+Load the cell type annotation from the seurat object
+
+```{r}
+seuratObj = readRDS(seuratObjFile)
+cellClusters = seuratObj$seurat_clusters %>% as.data.frame()
+colnames(cellClusters) = "seurat_cluster"
+head(cellClusters)
+```
+
+Also load the motif enrichment results:
+
+```{r}
+motifEnrichment <- data.table::fread(motifEnrichmentFile, header=T, skip=1)[-3,]
+colnames(motifEnrichment)[1:2] <- c("TF", "MotifID")
+```
+
+regulonAUC
+
+## Regulators for known cell types or clusters
+The regulatory analysis from SCENIC can be combined with other types of analyses for single-cell RNA-seq data. For example, if you already have cell clusters or some cell annotations for your dataset, an easy way to start the analysis is finding TFs that could be acting as key regulators.
+
+### Average Regulon Activity per cluster
+
+Visualizing the regulon activity per cluster can help get a global overview of the TFs in your dataset. Note that the default VSN pipeline already produces a heatmap with the individual cells. This is a complementary heatmap showing the average per cluster.
+
+```{r}
+head(cellClusters)
+```
+
+Load the embedding from the seurat object.
+
+```{r}
+UMAP = Embeddings(seuratObj, reduction = "umap")
+head(UMAP)
+```
+
+```{r}
+selectedResolution <- "seurat_cluster" # select resolution
+# Split the cells by cluster:
+cellsPerCluster <- split(rownames(cellClusters), cellClusters[,selectedResolution]) 
+regulonAUC <- regulonAUC[onlyNonDuplicatedExtended(rownames(regulonAUC)),]
+# Calculate average expression:
+regulonActivity_byCellType <- sapply(cellsPerCluster,
+                                     function(cells) rowMeans(getAUC(regulonAUC)[,cells]))
+# Scale expression:
+regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), center = T, scale=T))
+```
+
+```{r}
+# plot:
+options(repr.plot.width=8, repr.plot.height=10) # To set the figure size in Jupyter
+hm <- draw(ComplexHeatmap::Heatmap(regulonActivity_byCellType_Scaled, name="Regulon activity",
+                       row_names_gp=grid::gpar(fontsize=6))) # row font size
+regulonOrder <- rownames(regulonActivity_byCellType_Scaled)[row_order(hm)] # to save the clustered regulons for later
+```
+
+```{r}
+top5regulon = apply(regulonActivity_byCellType_Scaled, 2, function(x) names(x[order(abs(x))[1:5]]))
+top5regulonV = top5regulon %>% as.vector() %>% unique()
+top5regulonV
+```
+
+Top 5 regulon:
+
+```{r}
+# plot:
+png(str_c(vsnDir, "top5regulon.png"))
+options(repr.plot.width=8, repr.plot.height=10) # To set the figure size in Jupyter
+hm <- draw(ComplexHeatmap::Heatmap(regulonActivity_byCellType_Scaled[top5regulonV,], name="Regulon activity",
+                       row_names_gp=grid::gpar(fontsize=6))) # row font size
+regulonOrder <- rownames(regulonActivity_byCellType_Scaled[top5regulonV,])[row_order(hm)] # to save the clustered regulons for later
+dev.off()
+```
+
+To see the exact values:
+
+```{r}
+topRegulators <- reshape2::melt(regulonActivity_byCellType_Scaled)
+colnames(topRegulators) <- c("Regulon", "CellType", "RelativeActivity")
+topRegulators$CellType <- factor(as.character(topRegulators$CellType))
+topRegulators <- topRegulators[which(topRegulators$RelativeActivity>0),]
+dim(topRegulators)
+```
+
+```{r}
+viewTable(topRegulators, options = list(pageLength = 10))
+```
+
+## Cell-type specific regulators
+
+To identify cluster-specific regulons (especially for analyses with many cell types, where some regulons are common to multiple of them) we find specially useful the Regulon Specificity Score (RSS) (proposed by Suo et al. for the Mouse Cell Atlas in 2018).
+
+To calculate and visualize the RSS:
+
+```{r}
+rss <- calcRSS(AUC=getAUC(regulonAUC), cellAnnotation=cellClusters[colnames(regulonAUC), selectedResolution])
+## Showing regulons and cell types with any RSS > 0.01 
+rssPlot <- plotRSS(rss)
+plotly::ggplotly(rssPlot$plot)
+```
+
+The following chunk ocassionally failed to run. But should be ok.
+
+```{r}
+options(repr.plot.width=5, repr.plot.height=5) # To set the figure size in Jupyter
+plotRSS_oneSet(rss, setName = "4") # cluster ID
+```
+
+## Cell states based on the GRN activity
+
+To explore whether there are groups of cells that tend to have the same regulons active, and reveal the network states that are recurrent across multiple cells, we can cluster the cells based on this regulon activity (either the continuous or binary AUC matrix). These states would be equivalent to the attractor states of the network, and they can match the known cell types, or provide a new/complementary view of the data.
+
+SCENIC provides some wrapper functions to get a quick overview and detect potential associations of cell types or states with specific regulons. For example, visualizing the AUC as heatmaps (like in the previous section) or projecting the AUC and TF expression onto 2D projections (such as t-SNE and Umap).
+
+2D embeddings of the cells are often used to get a quick and easy overview of the cell states in the dataset.
+
+By default, VSN provides two types of projections, based on the regulatory networks (SCENIC) and based on highly variable genes (HVG, using Scanpy).
+
+In this section we focus on the 2D projections calculated based on the regulon scores (i.e. to explore the GRN-based states) but the AUC can also be visualized on projections obtained by other methods (e.g. Umaps based on HGV with Seurat or Scanpy).
+
+Here we have an example projecting TF and regulon activity on the 2D-embeddings:
+
+```{r}
+# Overview of these embeddings (see below for details)
+#regulonsToPlot <- "ETS1_(+)-motif"
+options(repr.plot.width=12, repr.plot.height=8) # To set the figure size in Jupyter
+#AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], plots=c("AUC"), cex = .5)
+par(mfrow=c(2, ceiling(length(top5regulon[,1])/2)))
+for (regulonsToPlot in top5regulon[,1])
+    AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], plots=c("AUC"), cex = .5)
+```
+
+```{r}
+for (clusterIdx in 1:ncol(top5regulon)){
+    png(str_c(vsnDir, colnames(top5regulon)[clusterIdx], ".png"), width = 360, height = 240)
+    options(repr.plot.width=12, repr.plot.height=8) # To set the figure size in Jupyter
+    par(mfrow=c(2, ceiling(length(top5regulon[,1])/2)))
+    for (regulonsToPlot in top5regulon[,clusterIdx])
+        AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], plots=c("AUC"), cex = .5)
+    dev.off()
+}
+```
+
+## Binarized regulon activity
+
+In order to find GRN-based cell states, sometimes it is also useful to binarize the Regulon activity score into "on"/"off". The resulting binarized activity matrix can be used for performing a new 2D projection or clustering, which might reveal more specific GRN-based cell states. We found this specially helpful for the analysis of cancer datasets, which allowed to overcome the patient-of origin "batch" effect, and find meaningful cancer states (see SCENIC paper).
+
+SCENIC already calculates a set of default thresholds (which might need to be adjusted for some regulons):
+
+```{r}
+head(as.data.frame(regulonAucThresholds))
+```
+
+These can also be plotted with `AUCell_plotTSNE`:
+
+```{r}
+regulonsToPlot <- "ACO1(+)"
+options(repr.plot.width=10, repr.plot.height=4) # To set the figure size in Jupyter
+par(mfrow=c(1,2))
+AUCell::AUCell_plotTSNE(UMAP, exprMat_log, 
+                        regulonAUC[regulonsToPlot,], thresholds = regulonAucThresholds[regulonsToPlot],
+                        plots=c("AUC", "binary"), cex = .5)
+```
+
+```{r}
+for (clusterIdx in 1:ncol(top5regulon)){
+    png(str_c(vsnDir, colnames(top5regulon)[clusterIdx], "_binary.png"), width = 360, height = 240)
+    options(repr.plot.width=12, repr.plot.height=8) # To set the figure size in Jupyter
+    par(mfrow=c(2, ceiling(length(top5regulon[,1])/2)))
+    for (regulonsToPlot in top5regulon[,clusterIdx])
+        AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], plots=c("binary"), cex = .5)
+    dev.off()
+}
+```
+
