@@ -1,0 +1,17 @@
+---
+title: "NicheNet analysis"
+output: html_document
+---
+
+```{r}
+library(nichenetr)
+library(Seurat) # please update to Seurat V4
+library(tidyverse)
+```
+
+```{r}
+seuratObj = readRDS("/home/linxy29/data/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS")
+outputFolder = "/home/linxy29/data/iPSC/day7_NichNet/"
+seuratObj@meta.data %>% head()
+```
+
