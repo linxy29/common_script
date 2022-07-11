@@ -25,8 +25,8 @@ SeuratPath <- args[1] # The path to the seurat object. It should be save as RDS 
 SampleName <- args[2] # Sample name that will be used for output files
 
 ### Example parameters
-SeuratPath <- "/storage/holab/linxy/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS" # The path to the seurat object. It should be save as RDS file
-SampleName <- "day7" # Sample name that will be used for output files
+#SeuratPath <- "/storage/holab/linxy/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS" # The path to the seurat object. It should be save as RDS file
+#SampleName <- "day7" # Sample name that will be used for output files
 
 message(Sys.time(), "\tLoading the Seurat data.")
 seuratObj <- readRDS(SeuratPath)
