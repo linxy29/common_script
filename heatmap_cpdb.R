@@ -1,6 +1,6 @@
 # Xinyi Lin, 202207
 # Goal: Plot cellphoneDB results
-# Useage: Rscript /home/linxy29/Code/common_script/plot_cpdb.R ./out/ /storage/holab/linxy/iPSC/day7_cpdb/day7_meta.txt
+# Useage: Rscript /home/linxy29/Code/common_script/heatmap_cpdb.R ./out/ /storage/holab/linxy/iPSC/day7_cpdb/day7_meta.txt
 
 options(max.print = 500)
 options(stringsAsFactors = FALSE)
