@@ -48,7 +48,7 @@ background_expressed_genes = expressed_genes_receiver %>% .[. %in% rownames(liga
 
 ```{r}
 ## sender
-sender_celltypes = c("Cardiac mesoderm","Mesoderm", "Endoderm")
+sender_celltypes = c("Endoderm", "Mesoderm")  ## cell numbers in NOTOSB - Cardiac mesoderm is too low, remove Mesoderm
 
 list_expressed_genes_sender = sender_celltypes %>% unique() %>% lapply(get_expressed_genes, seuratObj, 0.10, "RNA") # lapply to get the expressed genes of every sender cell type separately here
 expressed_genes_sender = list_expressed_genes_sender %>% unlist() %>% unique()
@@ -64,7 +64,6 @@ Calculate the differential expression using standard Seurat Wilcoxon test
 condition_oi = "NOTOSB"
 condition_reference = "NOTO" 
 meta_column = "treatment"
-sender_celltypes = c("Cardiac mesoderm", "Endoderm") ## cell numbers in NOTOSB - Mesoderm is too low, remove Mesoderm
 ```
 
 ```{r}
@@ -232,5 +231,48 @@ legends = cowplot::plot_grid(
 combined_plot = cowplot::plot_grid(figures_without_legend, legends, rel_heights = c(10,5), nrow = 2, align = "hv")
 combined_plot
 ggsave(str_c(outputFolder, sampleName, "_", condition_oi, "vs", condition_reference, "_all.png"), width = 16, height = 16)
+```
+
+### Inferring ligand-to-target signaling paths
+
+```{r}
+weighted_networks = readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+ligand_tf_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_tf_matrix.rds"))
+
+lr_network = readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+sig_network = readRDS(url("https://zenodo.org/record/3260758/files/signaling_network.rds"))
+gr_network = readRDS(url("https://zenodo.org/record/3260758/files/gr_network.rds"))
+```
+
+```{r}
+ligands_all = "FGF2" # this can be a list of multiple ligands if required
+targets_all = vis_ligand_target[ligands_all,which(vis_ligand_target[ligands_all,] > 0.004)] %>% names()
+
+active_signaling_network = get_ligand_signaling_path(ligand_tf_matrix = ligand_tf_matrix, ligands_all = ligands_all, targets_all = targets_all, weighted_networks = weighted_networks)
+
+# For better visualization of edge weigths: normalize edge weights to make them comparable between signaling and gene regulatory interactions
+active_signaling_network_min_max = active_signaling_network
+active_signaling_network_min_max$sig = active_signaling_network_min_max$sig %>% mutate(weight = ((weight-min(weight))/(max(weight)-min(weight))) + 0.75)
+active_signaling_network_min_max$gr = active_signaling_network_min_max$gr %>% mutate(weight = ((weight-min(weight))/(max(weight)-min(weight))) + 0.75)
+
+graph_min_max = diagrammer_format_signaling_graph(signaling_graph_list = active_signaling_network_min_max, ligands_all = ligands_all, targets_all = targets_all, sig_color = "indianred", gr_color = "steelblue")
+
+# To render the graph: uncomment following line of code
+DiagrammeR::render_graph(graph_min_max, layout = "tree", width = 2400, height = 1600)
+DiagrammeR::export_graph(graph_min_max, file_name = str_c(outputFolder, sampleName, "_", condition_oi, "vs", condition_reference, "_graph.png"))
+```
+
+```{r}
+data_source_network = infer_supporting_datasources(signaling_graph_list = active_signaling_network,lr_network = lr_network, sig_network = sig_network, gr_network = gr_network)
+head(data_source_network) 
+## # A tibble: 6 x 5
+##   from  to    source            database       layer     
+##   <chr> <chr> <chr>             <chr>          <chr>     
+## 1 SMAD1 TGFBI regnetwork_source regnetwork     regulatory
+## 2 SMAD1 TGFBI Remap_5           Remap          regulatory
+## 3 SMAD2 LAMC2 harmonizome_CHEA  harmonizome_gr regulatory
+## 4 SMAD2 TGFBI harmonizome_CHEA  harmonizome_gr regulatory
+## 5 SMAD2 TNC   harmonizome_CHEA  harmonizome_gr regulatory
+## 6 SMAD2 TNC   regnetwork_source regnetwork     regulatory
 ```
 
