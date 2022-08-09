@@ -19,6 +19,7 @@ library(grid)
 library(ComplexHeatmap)
 library(data.table)
 library(Seurat)
+library(tidyverse)
 ```
 
 ```{r}
@@ -63,6 +64,7 @@ seuratObj = readRDS(seuratObjFile)
 cellClusters = seuratObj$seurat_clusters %>% as.data.frame()
 colnames(cellClusters) = "seurat_cluster"
 head(cellClusters)
+DimPlot(seuratObj)
 ```
 
 Also load the motif enrichment results:
@@ -116,6 +118,11 @@ regulonOrder <- rownames(regulonActivity_byCellType_Scaled)[row_order(hm)] # to 
 top5regulon = apply(regulonActivity_byCellType_Scaled, 2, function(x) names(x[order(abs(x))[1:5]]))
 top5regulonV = top5regulon %>% as.vector() %>% unique()
 top5regulonV
+```
+
+```{r}
+str_replace(top5regulonV, '\\(\\+\\)', '')
+motifEnrichment %>% filter(TF %in% str_replace(top5regulonV, '\\(\\+\\)', '')) %>% head()
 ```
 
 Top 5 regulon:
@@ -190,7 +197,7 @@ for (regulonsToPlot in top5regulon[,1])
 
 ```{r}
 for (clusterIdx in 1:ncol(top5regulon)){
-    png(str_c(vsnDir, colnames(top5regulon)[clusterIdx], ".png"), width = 360, height = 240)
+    png(str_c(vsnDir, colnames(top5regulon)[clusterIdx], ".png"), width = 1200, height = 800)
     options(repr.plot.width=12, repr.plot.height=8) # To set the figure size in Jupyter
     par(mfrow=c(2, ceiling(length(top5regulon[,1])/2)))
     for (regulonsToPlot in top5regulon[,clusterIdx])
@@ -222,7 +229,7 @@ AUCell::AUCell_plotTSNE(UMAP, exprMat_log,
 
 ```{r}
 for (clusterIdx in 1:ncol(top5regulon)){
-    png(str_c(vsnDir, colnames(top5regulon)[clusterIdx], "_binary.png"), width = 360, height = 240)
+    png(str_c(vsnDir, colnames(top5regulon)[clusterIdx], "_binary.png"), width = 1200, height = 800)
     options(repr.plot.width=12, repr.plot.height=8) # To set the figure size in Jupyter
     par(mfrow=c(2, ceiling(length(top5regulon[,1])/2)))
     for (regulonsToPlot in top5regulon[,clusterIdx])
