@@ -19,6 +19,7 @@ library(grid)
 library(ComplexHeatmap)
 library(data.table)
 library(Seurat)
+library(gprofiler2)
 library(tidyverse)
 ```
 
@@ -115,22 +116,37 @@ regulonOrder <- rownames(regulonActivity_byCellType_Scaled)[row_order(hm)] # to 
 ```
 
 ```{r}
-top5regulon = apply(regulonActivity_byCellType_Scaled, 2, function(x) names(x[order(abs(x))[1:5]]))
+top5regulon = apply(regulonActivity_byCellType_Scaled, 2, function(x) names(sort(x,decreasing = TRUE)[1:5]))
 top5regulonV = top5regulon %>% as.vector() %>% unique()
-top5regulonV
+top5regulon
 ```
 
 ```{r}
 str_replace(top5regulonV, '\\(\\+\\)', '')
-motifEnrichment %>% filter(TF %in% str_replace(top5regulonV, '\\(\\+\\)', '')) %>% head()
+top5regulon_targetGenes = motifEnrichment %>% filter(TF %in% str_replace(top5regulonV, '\\(\\+\\)', '')) %>% 
+    select(TF, MotifID, AUC, Annotation, TargetGenes)
+goterm = c()
+goterm_link = c()
+for (i in 1:nrow(top5regulon_targetGenes)){
+    targetGenes = top5regulon_targetGenes[i] %>% .$TargetGenes %>% str_split('\'') %>% .[[1]] %>% .[2*(1:(length(.)/2))]
+    if (is.null(targetGenes %>% gost())){
+        next
+    } else {
+        goterm[i] = targetGenes %>% gost() %>% .$result %>% slice_head(n = 20) %>% .$term_name %>% paste(collapse=", ")
+        goterm_link[i] = targetGenes %>% gost(as_short_link = TRUE)
+    }
+}
+top5regulon_targetGenes$goterm = goterm
+top5regulon_targetGenes$goterm_link = goterm_link
+top5regulon_targetGenes %>% write_csv(str_c(vsnDir,"top5regulon_targetGenes.csv"))
 ```
 
 Top 5 regulon:
 
 ```{r}
 # plot:
-png(str_c(vsnDir, "top5regulon.png"))
-options(repr.plot.width=8, repr.plot.height=10) # To set the figure size in Jupyter
+png(str_c(vsnDir, "top5regulon.png"), width = 800, height = 800)
+options(repr.plot.width=15, repr.plot.height=15) # To set the figure size in Jupyter
 hm <- draw(ComplexHeatmap::Heatmap(regulonActivity_byCellType_Scaled[top5regulonV,], name="Regulon activity",
                        row_names_gp=grid::gpar(fontsize=6))) # row font size
 regulonOrder <- rownames(regulonActivity_byCellType_Scaled[top5regulonV,])[row_order(hm)] # to save the clustered regulons for later
@@ -236,5 +252,9 @@ for (clusterIdx in 1:ncol(top5regulon)){
         AUCell::AUCell_plotTSNE(UMAP, exprMat_log, regulonAUC[regulonsToPlot,], plots=c("binary"), cex = .5)
     dev.off()
 }
+```
+
+```{r}
+
 ```
 
