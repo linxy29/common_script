@@ -1,8 +1,6 @@
 # Xinyi Lin, 202207
-# Goal: Extract gene expression matrix from a Seurat object for pySCENIC
-# Useage: Rscript /home/linxy29/code/R/common_script/get_pySCENIC.R ../day7_preprocess/day7iPSC_wUMAP.RDS "day7"
-
-# !!!!This isn't finished!!!! 
+# Goal: Extract gene expression matrix from a Seurat object for cellphoneDB
+# Useage: Rscript /home/linxy29/code/R/common_script/get_cpdb_input.R ../day7_preprocess/day7iPSC_wUMAP.RDS "day7"
 
 options(max.print = 500)
 options(stringsAsFactors = FALSE)
@@ -13,6 +11,7 @@ options(scipen = 999)
 suppressMessages(library(Seurat))
 suppressMessages(library(tidyverse))
 suppressMessages(library(data.table))
+suppressMessages(library(EnsDb.Hsapiens.v79))
 
 rm(list=ls())
 
@@ -21,41 +20,40 @@ rm(list=ls())
 
 
 ### Arguments to be provided when executing script
-SeuratPath <- commandArgs(trailingOnly=TRUE)[1] # The path to the seurat object. It should be save as RDS file
-EnsemblePath <- commandArgs(trailingOnly=TRUE)[2] # The path to the features file
-SampleName <- commandArgs(trailingOnly=TRUE)[3] # Sample name that will be used for output files
+args = commandArgs(trailingOnly=TRUE)
+SeuratPath <- args[1] # The path to the seurat object. It should be save as RDS file
+SampleName <- args[2] # Sample name that will be used for output files
 
 ### Example parameters
-SeuratPath <- commandArgs(trailingOnly=TRUE)[1] # The path to the seurat object. It should be save as RDS file
-EnsemblePath <- commandArgs(trailingOnly=TRUE)[2] # The path to the features file
-SampleName <- commandArgs(trailingOnly=TRUE)[3] # Sample name that will be used for output files
+#SeuratPath <- "/storage/holab/linxy/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS" # The path to the seurat object. It should be save as RDS file
+#SampleName <- "day7" # Sample name that will be used for output files
 
-seuratObj <- readRDS(Path)
-message(Sys.time(), "\tLoaded the Seurat data.")
+message(Sys.time(), "\tLoading the Seurat data.")
+seuratObj <- readRDS(SeuratPath)
 
-ensembleF = fread(str_c(pathSPC, "/GCTB/cellranger_output/L56_v3/outs/filtered_feature_bc_matrix/features.tsv.gz"), header = FALSE)
-colnames(ensembleF) = c("ensembleID", "geneID", "info")
-
-load(str_c(pathSPC, "/GCTB/GCTB6/GCTB6.combined.rdata"))
+if (length(args) == 3){
+  EnsemblePath <- args[3]
+  ensembleF = fread(EnsemblePath)
+  colnames(ensembleF) = c("GENEID", "SYMBOL", "info")
+} else {
+  geneSymbols <- rownames(seuratObj@assays$RNA)
+  ensembleF <- ensembldb::select(EnsDb.Hsapiens.v79, keys= geneSymbols, keytype = "SYMBOL", columns = c("SYMBOL","GENEID"))
+}
 
 ## generate normalized count data
-GCTB6_row <- GCTB6.combined@assays$RNA@counts
-GCTB6_norm<- apply(GCTB6_row, 2, function(x) (x/sum(x))*10000)
-rownames(GCTB6_norm) = ensembleF[match(rownames(GCTB6_norm), ensembleF$geneID),]$ensembleID
-GCTB6_normDF = GCTB6_norm %>% as.data.frame() %>% 
-  mutate(Gene = rownames(GCTB6_norm)) %>% 
+message(Sys.time(), "\tGenerating the count data.")
+count_raw <- seuratObj@assays$RNA@counts[ensembleF$SYMBOL,]
+count_norm<- apply(count_raw, 2, function(x) (x/sum(x))*10000)
+rownames(count_norm) = ensembleF[match(rownames(count_norm), ensembleF$SYMBOL),]$GENEID
+count_normDF = count_norm %>% as.data.frame() %>% 
+  mutate(Gene = rownames(count_norm)) %>% 
   dplyr::select(Gene, everything())
-#write.table(GCTB6_normDF[,1:101],"D:/Data/GCTB/cpDB/GCTB6_count_test2.txt", row.names=FALSE, sep="\t", quote=F)
-write.table(GCTB6_norm[,1:100],str_c(pathSPC, "/GCTB/cpDB/GCTB6_count_test.txt"), sep="\t", quote=F)
-write.table(GCTB6_norm,str_c(pathSPC, "/GCTB/cpDB/GCTB6_count.txt"), sep="\t", quote=F)
+write.table(count_norm, paste0(SampleName, "_count.txt"), sep="\t", quote=F)
 
 ## generate metadata
-GCTB6_meta_data <- cbind(colnames(GCTB6_norm), GCTB6.combined$seurat_clusters %>% as.character())
-colnames(GCTB6_meta_data) = c("Cell", "cell_type")
-GCTB6_meta_data_test <- cbind(colnames(GCTB6_norm[,1:100]), GCTB6.combined$seurat_clusters %>% as.character() %>% head(100) %>% str_c("cluster", .))
-colnames(GCTB6_meta_data_test) = c("Cell", "cell_type")
-#write.table(GCTB6_meta_data_test , "D:/Data/GCTB/cpDB/GCTB6_meta_test2.txt", sep="\t", quote=F, row.names=F, col.names = TRUE)
-#write.table(GCTB6_meta_data_test , "D:/Data/GCTB/cpDB/GCTB6_meta_test.txt", sep="\t", quote=F, row.names=F)
-write.table(GCTB6_meta_data, str_c(pathSPC, "/GCTB/cpDB/GCTB6_meta.txt"), sep="\t", quote=F, row.names=F)
+message(Sys.time(), "\tGenerating the meta data.")
+meta_data <- cbind(colnames(count_norm), seuratObj$seurat_clusters %>% as.character())
+colnames(meta_data) = c("Cell", "cell_type")
+write.table(meta_data, paste0(SampleName, "_meta.txt"), sep="\t", quote=F, row.names=F)
 message(Sys.time(), "\tDone.")
 

@@ -1,6 +1,6 @@
 # Xinyi Lin, 202206
-# Goal: Extract gene expression matrix from a Seurat object for pySCENIC
-# Useage: Rscript /home/linxy29/Code/common_script/get_pySCENIC.R ../day7_preprocess/day7iPSC_wUMAP.RDS "day7"
+# Goal: Extract gene expression matrix from a Seurat object for scVelo
+# Useage: Rscript /home/linxy29/Code/common_script/get_scVelo_input.R ../seuratObj/2022-08-02_MES.CR.6.1.2.5000nF.clustered.RDS "ncc"
 
 options(max.print = 500)
 options(stringsAsFactors = FALSE)
@@ -10,27 +10,24 @@ options(scipen = 999)
 ### Load libraries
 suppressMessages(library(Seurat))
 suppressMessages(library(tidyverse))
+suppressMessages(library(SeuratDisk))
+suppressMessages(library(SeuratWrappers))
 
 rm(list=ls())
 
 ### Functions
 
 
-
 ### Arguments to be provided when executing script
 Path <- commandArgs(trailingOnly=TRUE)[1] # The path to the seurat object. It should be save as RDS file
 SampleName <- commandArgs(trailingOnly=TRUE)[2] # Sample name that will be used for output files
-
-### example parameters
-#Path <- "/storage/holab/linxy/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS"
-#SampleName <- "day7_v2"
 
 
 seuratObj <- readRDS(Path)
 message(Sys.time(), "\tLoaded the Seurat data.")
 
 ## This is for CLI pySCENIC
-row.names(seuratObj@assays$RNA@counts)[row.names(seuratObj@assays$RNA@counts) == "TBXT"] <- "T"
-write.csv(t(as.matrix(seuratObj@assays$RNA@counts)),file = paste0(SampleName, ".csv"))
+write.csv(Cells(seuratObj), file = paste0(SampleName, "_cellID.csv"), row.names = FALSE)
+write.csv(Embeddings(seuratObj, reduction = "umap"), file = paste0(SampleName, "_embeddings.csv"))
+write.csv(Idents(seuratObj), file = paste0(SampleName, "_clusters.csv"))
 message(Sys.time(), "\tDone.")
-
