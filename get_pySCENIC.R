@@ -30,7 +30,7 @@ seuratObj <- readRDS(Path)
 message(Sys.time(), "\tLoaded the Seurat data.")
 
 ## This is for CLI pySCENIC
-row.names(seuratObj@assays$RNA@counts)[row.names(seuratObj@assays$RNA@counts) == "TBXT"] <- "T"
+#row.names(seuratObj@assays$RNA@counts)[row.names(seuratObj@assays$RNA@counts) == "TBXT"] <- "T"
 write.csv(t(as.matrix(seuratObj@assays$RNA@counts)),file = paste0(SampleName, ".csv"))
 message(Sys.time(), "\tDone.")
 
