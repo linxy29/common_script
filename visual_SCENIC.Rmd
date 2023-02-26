@@ -29,13 +29,13 @@ packageVersion("SCENIC")
 
 ```{r}
 # setwd("/storage/holab/linxy/iPSC/day7_SCENIC")
-vsnDir <- "/storage/holab/linxy/iPSC/day7_SCENIC/"
+vsnDir <- "/storage/holab/linxy/vivian/scenic/"
 ```
 
 ```{r}
-scenicLoomPath <- file.path(vsnDir, "day7_SCENIC.loom")
-motifEnrichmentFile <- file.path(vsnDir, "day7_reg.csv")
-seuratObjFile = "/storage/holab/linxy/iPSC/day7_preprocess/day7iPSC_wUMAP.RDS"
+scenicLoomPath <- file.path(vsnDir, "eu_cfs_ncc_SCENIC.loom")
+motifEnrichmentFile <- file.path(vsnDir, "eu_cfs_ncc.csv")
+seuratObjFile = "/storage/holab/linxy/vivian/seuratObj/2022-12-13_fastMNN.EU.CFS.NCC.clustered.RDS"
 file.exists(scenicLoomPath)
 file.exists(motifEnrichmentFile)
 ```
